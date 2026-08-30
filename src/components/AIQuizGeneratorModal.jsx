@@ -3,7 +3,7 @@ import {
   X, Sparkles, Upload, FileText, Image as ImageIcon, Key, 
   Check, Trash2, Plus, ArrowLeft, Loader2, Eye, EyeOff, Globe, Lock, AlertCircle
 } from 'lucide-react';
-import { generateQuizWithAI, getOpenAIApiKey, saveOpenAIApiKey, getPDFPageCount } from '../lib/openai';
+import { generateQuizWithAI, getGeminiApiKey, saveGeminiApiKey, getPDFPageCount } from '../lib/gemini';
 
 const MAX_DAILY_AI_USAGE = 3;
 
@@ -51,7 +51,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
   const [subject, setSubject] = useState('');
   const [questionCount, setQuestionCount] = useState(15);
   const [customPrompt, setCustomPrompt] = useState('');
-  const [model, setModel] = useState('gpt-4o-mini');
+  const [model, setModel] = useState('gemini-2.5-flash');
   const [isSavingKey, setIsSavingKey] = useState(true);
 
   // Preview state
@@ -69,7 +69,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
 
   useEffect(() => {
     if (isOpen) {
-      setApiKey(getOpenAIApiKey());
+      setApiKey(getGeminiApiKey());
       setErrorMsg('');
       const used = getDailyAIUsage(userId);
       setDailyUsed(used);
@@ -177,9 +177,9 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
       return;
     }
 
-    const keyToUse = apiKey.trim() || getOpenAIApiKey();
+    const keyToUse = apiKey.trim() || getGeminiApiKey();
     if (isAdmin && !keyToUse) {
-      setErrorMsg('OpenAI API Key를 입력해 주세요.');
+      setErrorMsg('Gemini API Key를 입력해 주세요.');
       return;
     }
 
@@ -207,7 +207,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
     }
 
     if (isAdmin && isSavingKey && apiKey.trim()) {
-      saveOpenAIApiKey(apiKey);
+      saveGeminiApiKey(apiKey);
     }
 
     setErrorMsg('');
@@ -872,7 +872,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                 />
               </div>
 
-              {/* OpenAI API Key Input (Admin only) */}
+              {/* Gemini API Key Input (Admin only) */}
               {isAdmin && (
                 <div style={{
                   background: 'var(--surface-2)',
@@ -882,7 +882,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <label style={{ fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Key size={14} color="#F59E0B" /> OpenAI API Key <span style={{ color: 'var(--primary)' }}>* (관리자 전용)</span>
+                      <Key size={14} color="#F59E0B" /> Gemini API Key <span style={{ color: 'var(--primary)' }}>* (관리자 전용)</span>
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                       <select 
@@ -897,8 +897,10 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                           fontSize: '11px'
                         }}
                       >
-                        <option value="gpt-4o-mini">gpt-4o-mini (권장, 빠름)</option>
-                        <option value="gpt-4o">gpt-4o (고성능)</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash (권장, 빠름)</option>
+                        <option value="gemini-2.5-pro">gemini-2.5-pro (고성능)</option>
+                        <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
                       </select>
                     </div>
                   </div>
@@ -906,7 +908,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                   <div style={{ position: 'relative' }}>
                     <input
                       type={showApiKey ? 'text' : 'password'}
-                      placeholder="sk-..."
+                      placeholder="AIzaSy..."
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       style={{
