@@ -388,11 +388,8 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>AI로 문제 만들기</h3>
-              <p style={{ margin: 0, fontSize: '12px', color: 'var(--ink-muted)' }}>
-                {step === 1 && 'PDF 또는 이미지에서 초등 3~6학년 수준의 퀴즈를 생성합니다.'}
-                {step === 2 && 'AI 분석 진행 중...'}
-                {step === 3 && '생성된 문제를 검토하고 문제 은행에 저장하세요.'}
-              </p>
+              {step === 2 && <p style={{ margin: 0, fontSize: '12px', color: 'var(--ink-muted)' }}>AI 분석 진행 중...</p>}
+              {step === 3 && <p style={{ margin: 0, fontSize: '12px', color: 'var(--ink-muted)' }}>생성된 문제를 검토하고 문제 은행에 저장하세요.</p>}
             </div>
           </div>
 
