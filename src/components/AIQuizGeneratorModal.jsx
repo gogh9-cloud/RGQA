@@ -1184,7 +1184,8 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
           padding: '16px 24px',
           borderTop: '1px solid rgba(255,255,255,0.1)',
           display: 'flex',
-          justify: 'space-between',
+          justifyContent: 'flex-end',
+          gap: '12px',
           alignItems: 'center',
           background: 'var(--surface-2)'
         }}>
