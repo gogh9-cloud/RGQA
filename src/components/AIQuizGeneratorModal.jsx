@@ -784,11 +784,11 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px' }}>
-                    과목 / 주제 (선택)
+                    과목 / 단원 (선택)
                   </label>
                   <input 
                     type="text"
-                    placeholder="예: 초등 6학년 과학, 한국사"
+                    placeholder="예: 사회 6-1-3 지구, 대륙 그리고 국가들"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                     style={{
@@ -844,7 +844,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                             cursor: 'pointer'
                           }}
                         >
-                          {cnt}문항{cnt === 15 ? '(기본)' : ''}
+                          {cnt}문항
                         </button>
                       ))}
                     </div>
