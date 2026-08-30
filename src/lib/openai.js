@@ -95,8 +95,8 @@ export async function generateQuizWithAI({
   files = [],
   selectedPages = null,
   subject = '',
-  questionCount = 5,
-  difficulty = '초등학교 고학년(5~6학년)',
+  questionCount = 15,
+  difficulty = '초등학교 3~6학년 (자료 내용 기반 자동 설정)',
   customPrompt = '',
   model = 'gpt-4o-mini'
 }) {
@@ -121,10 +121,12 @@ export async function generateQuizWithAI({
   // Construct message content
   const contentPayload = [];
 
-  let promptText = `다음 업로드된 문서/이미지 내용을 바탕으로 객관식 퀴즈 문제를 생성해주세요.\n\n`;
+  let promptText = `다음 업로드된 문서/이미지 내용을 바탕으로 5지선다 객관식 퀴즈 문제를 생성해주세요.\n\n`;
   if (subject) promptText += `- 과목/주제: ${subject}\n`;
   promptText += `- 생성할 문제 수: ${questionCount}개\n`;
-  promptText += `- 난이도/대상: ${difficulty}\n`;
+  promptText += `- 난이도/대상: 초등학교 3~6학년 (업로드된 자료 내용과 난이도에 맞춰 3~6학년 수준에서 자동 조절)\n`;
+  promptText += `- 보기 형태: 반드시 5지선다 (1번~5번 5개 보기)\n`;
+  promptText += `- 정답 작성 주의사항: 정답 보기가 오답 보기보다 특별히 길거나 자세하지 않도록 5개 보기의 길이와 어조를 비슷하게 작성할 것!\n`;
   if (customPrompt) promptText += `- 추가 요청사항: ${customPrompt}\n`;
 
   if (isPDF) {
@@ -157,8 +159,8 @@ export async function generateQuizWithAI({
     }
   }
 
-  const systemPrompt = `You are an educational quiz generation AI for primary and secondary school teachers.
-Your task is to create high-quality, clear multiple-choice questions in Korean based on the provided material.
+  const systemPrompt = `You are an educational quiz generation AI for primary school teachers (elementary school grades 3 to 6).
+Your task is to create high-quality, clear 5-option multiple-choice questions (5지선다) in Korean based on the provided material.
 
 CRITICAL REQUIREMENTS:
 1. Return strictly valid JSON with no extra commentary or markdown formatting outside the JSON object.
@@ -170,15 +172,16 @@ CRITICAL REQUIREMENTS:
     {
       "question_num": "1",
       "question_text": "문제 질문 내용",
-      "options": ["보기 1", "보기 2", "보기 3", "보기 4"],
+      "options": ["보기 1", "보기 2", "보기 3", "보기 4", "보기 5"],
       "answers": ["2"]
     }
   ]
 }
-3. Each question MUST have exactly 4 choices in the 'options' array.
-4. 'answers' MUST be an array containing a single string representing the 1-based index of the correct choice (e.g. ["1"], ["2"], ["3"], or ["4"]).
-5. Provide accurate questions suitable for the requested grade level.
-6. Generate exactly ${questionCount} questions.`;
+3. Each question MUST have EXACTLY 5 choices in the 'options' array.
+4. 'answers' MUST be an array containing a single string representing the 1-based index of the correct choice (e.g. ["1"], ["2"], ["3"], ["4"], or ["5"]).
+5. IMPORTANT: Do NOT make the correct answer noticeably longer, more detailed, or structured differently than false options. All 5 choices MUST be similar in length, structure, and tone so that students cannot infer the correct answer by option length.
+6. Target audience: Elementary school 3rd to 6th grade (초등학교 3~6학년). Automatically calibrate question difficulty within 3rd to 6th grade based on the uploaded content.
+7. Generate exactly ${questionCount} questions.`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',

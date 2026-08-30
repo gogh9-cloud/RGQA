@@ -27,7 +27,7 @@ const incrementDailyAIUsage = (userId) => {
   return current + 1;
 };
 
-export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, user }) {
+export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, user, isAdmin = false }) {
   const userId = user?.id || user?.email || 'guest';
   
   const [step, setStep] = useState(1); // 1: Settings, 2: Loading, 3: Preview/Edit
@@ -49,8 +49,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [subject, setSubject] = useState('');
-  const [questionCount, setQuestionCount] = useState(5);
-  const [difficulty, setDifficulty] = useState('초등학교 고학년(5~6학년)');
+  const [questionCount, setQuestionCount] = useState(15);
   const [customPrompt, setCustomPrompt] = useState('');
   const [model, setModel] = useState('gpt-4o-mini');
   const [isSavingKey, setIsSavingKey] = useState(true);
@@ -178,7 +177,8 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
       return;
     }
 
-    if (!apiKey.trim()) {
+    const keyToUse = apiKey.trim() || getOpenAIApiKey();
+    if (isAdmin && !keyToUse) {
       setErrorMsg('OpenAI API Key를 입력해 주세요.');
       return;
     }
@@ -206,7 +206,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
       return;
     }
 
-    if (isSavingKey) {
+    if (isAdmin && isSavingKey && apiKey.trim()) {
       saveOpenAIApiKey(apiKey);
     }
 
@@ -215,13 +215,13 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
 
     try {
       const result = await generateQuizWithAI({
-        apiKey,
+        apiKey: keyToUse,
         file: files[0],
         files,
         selectedPages: selectedPagesArray,
         subject,
         questionCount,
-        difficulty,
+        difficulty: '초등학교 3~6학년 (자료 내용 기반 자동 설정)',
         customPrompt,
         model
       });
@@ -234,17 +234,21 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
       setBankTitle(result.title || `${mainFileName} (AI 생성)`);
       setBankSubject(result.subject || subject || '기타');
       
-      const formattedQ = (result.questions || []).map((q, idx) => ({
-        id: Date.now() + idx,
-        question_num: String(idx + 1),
-        question_text: q.question_text || '',
-        options: Array.isArray(q.options) && q.options.length >= 4 
-          ? q.options.slice(0, 4) 
-          : ['보기 1', '보기 2', '보기 3', '보기 4'],
-        answers: Array.isArray(q.answers) && q.answers.length > 0 
-          ? [String(q.answers[0])] 
-          : ['1']
-      }));
+      const formattedQ = (result.questions || []).map((q, idx) => {
+        let opts = Array.isArray(q.options) ? q.options.slice(0, 5) : [];
+        while (opts.length < 5) {
+          opts.push(`보기 ${opts.length + 1}`);
+        }
+        return {
+          id: Date.now() + idx,
+          question_num: String(idx + 1),
+          question_text: q.question_text || '',
+          options: opts,
+          answers: Array.isArray(q.answers) && q.answers.length > 0 
+            ? [String(q.answers[0])] 
+            : ['1']
+        };
+      });
 
       setQuestions(formattedQ);
       setStep(3);
@@ -283,7 +287,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
         id: Date.now(),
         question_num: String(nextNum),
         question_text: '',
-        options: ['', '', '', ''],
+        options: ['보기 1', '보기 2', '보기 3', '보기 4', '보기 5'],
         answers: ['1']
       }
     ]);
@@ -315,7 +319,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
         return;
       }
       if (q.options.some(o => !o.trim())) {
-        alert(`${i + 1}번 문제의 모든 보기(1~4번)를 작성해 주세요.`);
+        alert(`${i + 1}번 문제의 모든 보기(1~5번)를 작성해 주세요.`);
         return;
       }
     }
@@ -356,7 +360,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
         border: '1px solid var(--surface-2)',
         borderRadius: '16px',
         width: '100%',
-        maxWidth: step === 3 ? '850px' : '650px',
+        maxWidth: step === 3 ? '880px' : '650px',
         maxHeight: '90vh',
         display: 'flex',
         flexDirection: 'column',
@@ -383,11 +387,11 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
               <Sparkles size={20} color="#fff" />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>AI로 문제 만들기</h3>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>AI로 문제 만들기 (5지선다)</h3>
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--ink-muted)' }}>
-                {step === 1 && 'PDF 또는 이미지에서 AI가 자동으로 퀴즈를 생성합니다.'}
+                {step === 1 && 'PDF 또는 이미지에서 초등 3~6학년 수준의 5지선다 퀴즈를 생성합니다.'}
                 {step === 2 && 'AI 분석 진행 중...'}
-                {step === 3 && '생성된 문제를 검토하고 문제 은행에 저장하세요.'}
+                {step === 3 && '생성된 5지선다 문제를 검토하고 문제 은행에 저장하세요.'}
               </p>
             </div>
           </div>
@@ -776,7 +780,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                 )}
               </div>
 
-              {/* Options Grid */}
+              {/* Subject & Question Count Row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px' }}>
@@ -801,55 +805,50 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
 
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px' }}>
-                    난이도 / 대상 학년
+                    생성할 문항 수 (직접 입력 가능)
                   </label>
-                  <select
-                    value={difficulty}
-                    onChange={(e) => setDifficulty(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px',
-                      background: 'var(--surface-2)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '8px',
-                      color: 'var(--ink)',
-                      fontSize: '14px'
-                    }}
-                  >
-                    <option value="초등학교 저학년(1~3학년)">초등학교 저학년 (1~3학년)</option>
-                    <option value="초등학교 고학년(4~6학년)">초등학교 고학년 (4~6학년)</option>
-                    <option value="중학교">중학교</option>
-                    <option value="고등학교">고등학교</option>
-                    <option value="일반/상식">일반 / 상식</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Question Count */}
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px' }}>
-                  생성할 문항 수
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {[3, 5, 10, 15].map((cnt) => (
-                    <button
-                      key={cnt}
-                      type="button"
-                      onClick={() => setQuestionCount(cnt)}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input 
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={questionCount}
+                      onChange={(e) => setQuestionCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
                       style={{
-                        flex: 1,
-                        padding: '8px 0',
+                        width: '80px',
+                        padding: '8px 10px',
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--primary)',
                         borderRadius: '8px',
-                        border: questionCount === cnt ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.1)',
-                        background: questionCount === cnt ? 'rgba(34, 197, 94, 0.15)' : 'var(--surface-2)',
-                        color: questionCount === cnt ? 'var(--primary)' : 'var(--ink)',
-                        fontWeight: questionCount === cnt ? 'bold' : 'normal',
-                        cursor: 'pointer'
+                        color: 'var(--ink)',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        textAlign: 'center'
                       }}
-                    >
-                      {cnt}문항
-                    </button>
-                  ))}
+                    />
+                    <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
+                      {[5, 10, 15, 20].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setQuestionCount(cnt)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 0',
+                            borderRadius: '6px',
+                            border: questionCount === cnt ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.1)',
+                            background: questionCount === cnt ? 'rgba(34, 197, 94, 0.15)' : 'var(--surface-2)',
+                            color: questionCount === cnt ? 'var(--primary)' : 'var(--ink)',
+                            fontWeight: questionCount === cnt ? 'bold' : 'normal',
+                            fontSize: '12px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {cnt}문항{cnt === 15 ? '(기본)' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -876,85 +875,87 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                 />
               </div>
 
-              {/* OpenAI API Key Input */}
-              <div style={{
-                background: 'var(--surface-2)',
-                padding: '16px',
-                borderRadius: '10px',
-                border: '1px solid rgba(255,255,255,0.05)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Key size={14} color="#F59E0B" /> OpenAI API Key <span style={{ color: 'var(--primary)' }}>*</span>
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                    <select 
-                      value={model} 
-                      onChange={(e) => setModel(e.target.value)}
+              {/* OpenAI API Key Input (Admin only) */}
+              {isAdmin && (
+                <div style={{
+                  background: 'var(--surface-2)',
+                  padding: '16px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.05)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Key size={14} color="#F59E0B" /> OpenAI API Key <span style={{ color: 'var(--primary)' }}>* (관리자 전용)</span>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                      <select 
+                        value={model} 
+                        onChange={(e) => setModel(e.target.value)}
+                        style={{
+                          background: 'var(--surface-1)',
+                          color: 'var(--ink)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          fontSize: '11px'
+                        }}
+                      >
+                        <option value="gpt-4o-mini">gpt-4o-mini (권장, 빠름)</option>
+                        <option value="gpt-4o">gpt-4o (고성능)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      placeholder="sk-..."
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
                       style={{
+                        width: '100%',
+                        padding: '10px 40px 10px 14px',
                         background: 'var(--surface-1)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
                         color: 'var(--ink)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '4px',
-                        padding: '2px 6px',
-                        fontSize: '11px'
+                        fontSize: '13px',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--ink-muted)',
+                        cursor: 'pointer'
                       }}
                     >
-                      <option value="gpt-4o-mini">gpt-4o-mini (권장, 빠름)</option>
-                      <option value="gpt-4o">gpt-4o (고성능)</option>
-                    </select>
+                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={isSavingKey} 
+                        onChange={(e) => setIsSavingKey(e.target.checked)} 
+                      />
+                      브라우저에 API Key 저장 (다음 접속 시 자동 입력)
+                    </label>
+                    <span style={{ fontSize: '11px', color: '#9CA3AF' }}>
+                      API 키는 관리자 화면에서만 수정 가능합니다.
+                    </span>
                   </div>
                 </div>
-
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    placeholder="sk-..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '10px 40px 10px 14px',
-                      background: 'var(--surface-1)',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '6px',
-                      color: 'var(--ink)',
-                      fontSize: '13px',
-                      fontFamily: 'monospace'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    style={{
-                      position: 'absolute',
-                      right: '10px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--ink-muted)',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-
-                <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <label style={{ fontSize: '11px', color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={isSavingKey} 
-                      onChange={(e) => setIsSavingKey(e.target.checked)} 
-                    />
-                    브라우저에 API Key 저장 (다음 접속 시 자동 입력)
-                  </label>
-                  <span style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                    API 키는 서버에 저장되지 않고 내 브라우저에만 유지됩니다.
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -963,10 +964,10 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
             <div style={{ padding: '60px 0', textAlign: 'center' }}>
               <Loader2 size={48} className="animate-spin" color="#8B5CF6" style={{ margin: '0 auto 20px', animation: 'spin 1.5s linear infinite' }} />
               <h4 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
-                AI가 문서를 분석하고 문제를 생성하고 있습니다...
+                AI가 문서를 분석하고 초등 3~6학년 5지선다 문제를 생성하고 있습니다...
               </h4>
               <p style={{ color: 'var(--ink-muted)', fontSize: '14px' }}>
-                선택하신 문서/이미지 크기와 요청 문항 수에 따라 약 10~30초 정도 소요될 수 있습니다.
+                선택하신 문서/이미지 크기와 요청 문항 수({questionCount}문항)에 따라 약 10~30초 정도 소요될 수 있습니다.
               </p>
             </div>
           )}
@@ -1053,7 +1054,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 'bold' }}>
-                  생성된 문제 검토 ({questions.length}문항)
+                  생성된 5지선다 문제 검토 ({questions.length}문항)
                 </h4>
                 <button
                   onClick={handleAddQuestion}
@@ -1130,8 +1131,8 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, us
                       }}
                     />
 
-                    {/* Options (1 ~ 4) */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    {/* Options (1 ~ 5 choices) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {q.options.map((opt, oIdx) => {
                         const isAnswer = q.answers[0] === String(oIdx + 1);
                         return (

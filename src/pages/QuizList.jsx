@@ -1015,6 +1015,7 @@ const QuizList = ({ user }) => {
         onClose={() => setShowAIModal(false)}
         onSaveToBank={handleSaveAIGeneratedBank}
         user={user}
+        isAdmin={isAdmin}
       />
     </div>
   );
