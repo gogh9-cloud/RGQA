@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { BUB_IMG_SRC } from '../lib/assets';
 import * as XLSX from 'xlsx';
-import { LogOut, Copy, Trash2, BarChart2, Plus, BookOpen, Lock, Globe, Upload, Download, Edit, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { LogOut, Copy, Trash2, BarChart2, Plus, BookOpen, Lock, Globe, Upload, Download, Edit, ChevronDown, ChevronRight, ExternalLink, Sparkles } from 'lucide-react';
+import AIQuizGeneratorModal from '../components/AIQuizGeneratorModal';
 
 function convertDriveUrl(url) {
   if (!url || !url.trim()) return '';
@@ -47,6 +48,7 @@ const QuizList = ({ user }) => {
   const [uploading, setUploading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadData, setUploadData] = useState({ title: '', subject: '', isPublic: true, validRows: [] });
+  const [showAIModal, setShowAIModal] = useState(false);
   const fileRef = useRef();
   const navigate = useNavigate();
 
@@ -212,6 +214,38 @@ const QuizList = ({ user }) => {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleSaveAIGeneratedBank = async ({ title, subject, isPublic, questions }) => {
+    const { data: bank, error: bankErr } = await supabase
+      .from('question_banks')
+      .insert([{
+        title,
+        subject: subject || '',
+        is_public: isPublic,
+        uploaded_by: user.id,
+        uploader_email: user.email,
+        question_count: questions.length
+      }])
+      .select()
+      .single();
+
+    if (bankErr) throw bankErr;
+
+    const dbQuestions = questions.map(q => ({
+      bank_id: bank.id,
+      question_num: q.question_num || '',
+      question_text: q.question_text || '',
+      options: q.options || [],
+      answers: q.answers || ['1'],
+      image_url: ''
+    }));
+
+    const { error: qErr } = await supabase.from('bank_questions').insert(dbQuestions);
+    if (qErr) throw qErr;
+
+    alert(`✅ "${title}" 문제 은행 생성이 완료되었습니다!\n총 ${questions.length}문항이 등록되었습니다.`);
+    setBanks(prev => [bank, ...prev]);
   };
 
   const downloadTemplate = () => {
@@ -475,6 +509,26 @@ const QuizList = ({ user }) => {
           <div style={{ display: 'flex', gap: '12px' }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
             
+            <button
+              onClick={() => setShowAIModal(true)}
+              style={{
+                padding: '10px 20px',
+                background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+                border: 'none',
+                borderRadius: 'var(--r-pill)',
+                color: '#ffffff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontWeight: 'bold',
+                boxShadow: '0 4px 12px rgba(139, 92, 246, 0.35)'
+              }}
+            >
+              <Sparkles size={16} /> AI로 문제 만들기
+            </button>
+
             <button
               onClick={() => !uploading && fileRef.current.click()}
               disabled={uploading}
@@ -954,6 +1008,13 @@ const QuizList = ({ user }) => {
           </div>
         </div>
       )}
+
+      {/* AI Quiz Generator Modal */}
+      <AIQuizGeneratorModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        onSaveToBank={handleSaveAIGeneratedBank}
+      />
     </div>
   );
 };
