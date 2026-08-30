@@ -33,24 +33,38 @@ export function readFileAsArrayBuffer(file) {
   });
 }
 
-export async function extractPDFContent(file) {
+export async function getPDFPageCount(file) {
+  const arrayBuffer = await readFileAsArrayBuffer(file);
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  return pdf.numPages;
+}
+
+export async function extractPDFContent(file, selectedPages = null) {
   const arrayBuffer = await readFileAsArrayBuffer(file);
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   
+  let pagesToProcess = [];
+  if (Array.isArray(selectedPages) && selectedPages.length > 0) {
+    pagesToProcess = selectedPages.filter(p => p >= 1 && p <= pdf.numPages).slice(0, 10);
+  } else {
+    const maxPages = Math.min(pdf.numPages, 10);
+    for (let i = 1; i <= maxPages; i++) {
+      pagesToProcess.push(i);
+    }
+  }
+
   let fullText = '';
   const pageImages = [];
 
-  const maxPages = Math.min(pdf.numPages, 5); // Limit to first 5 pages for efficiency
-
-  for (let i = 1; i <= maxPages; i++) {
-    const page = await pdf.getPage(i);
+  for (const pageNum of pagesToProcess) {
+    const page = await pdf.getPage(pageNum);
     
     // Extract text content
     const textContent = await page.getTextContent();
     const pageText = textContent.items.map(item => item.str).join(' ');
-    fullText += `\n--- [Page ${i}] ---\n` + pageText;
+    fullText += `\n--- [Page ${pageNum}] ---\n` + pageText;
 
-    // Render page to canvas for vision understanding (especially helpful for scanned/image PDFs)
+    // Render page to canvas for vision understanding
     try {
       const viewport = page.getViewport({ scale: 1.2 });
       const canvas = document.createElement('canvas');
@@ -62,7 +76,7 @@ export async function extractPDFContent(file) {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       pageImages.push(dataUrl);
     } catch (e) {
-      console.warn(`Failed to render PDF page ${i} to image:`, e);
+      console.warn(`Failed to render PDF page ${pageNum} to image:`, e);
     }
   }
 
@@ -70,13 +84,16 @@ export async function extractPDFContent(file) {
     type: 'pdf',
     text: fullText.trim(),
     pageImages,
-    numPages: pdf.numPages
+    numPages: pdf.numPages,
+    processedPages: pagesToProcess
   };
 }
 
 export async function generateQuizWithAI({
   apiKey,
-  file,
+  file = null,
+  files = [],
+  selectedPages = null,
   subject = '',
   questionCount = 5,
   difficulty = '초등학교 고학년(5~6학년)',
@@ -88,12 +105,14 @@ export async function generateQuizWithAI({
     throw new Error('OpenAI API Key가 설정되지 않았습니다. API 키를 입력하거나 설정해주세요.');
   }
 
-  if (!file) {
+  const allFiles = Array.isArray(files) && files.length > 0 ? files : (file ? [file] : []);
+  if (allFiles.length === 0) {
     throw new Error('문제를 생성할 PDF 또는 이미지 파일을 선택해주세요.');
   }
 
-  const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+  const firstFile = allFiles[0];
+  const isPDF = firstFile.type === 'application/pdf' || firstFile.name.toLowerCase().endsWith('.pdf');
+  const isImage = firstFile.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(firstFile.name);
 
   if (!isPDF && !isImage) {
     throw new Error('지원되지 않는 파일 형식입니다. PDF 또는 이미지 파일(.png, .jpg, .webp 등)만 업로드 가능합니다.');
@@ -109,15 +128,15 @@ export async function generateQuizWithAI({
   if (customPrompt) promptText += `- 추가 요청사항: ${customPrompt}\n`;
 
   if (isPDF) {
-    const pdfData = await extractPDFContent(file);
+    const pdfData = await extractPDFContent(firstFile, selectedPages);
     if (pdfData.text) {
-      promptText += `\n[문서 추출 텍스트 내용]:\n${pdfData.text.slice(0, 8000)}\n`;
+      promptText += `\n[문서 추출 텍스트 내용 (선택된 ${pdfData.processedPages.length}페이지)]:\n${pdfData.text.slice(0, 12000)}\n`;
     }
     contentPayload.push({ type: 'text', text: promptText });
 
-    // Attach rendered PDF page images for vision support
+    // Attach rendered PDF page images for vision support (up to 10 pages)
     if (pdfData.pageImages && pdfData.pageImages.length > 0) {
-      for (const imgUrl of pdfData.pageImages.slice(0, 3)) {
+      for (const imgUrl of pdfData.pageImages.slice(0, 10)) {
         contentPayload.push({
           type: 'image_url',
           image_url: { url: imgUrl, detail: 'low' }
@@ -125,12 +144,17 @@ export async function generateQuizWithAI({
       }
     }
   } else if (isImage) {
-    const imageDataUrl = await readFileAsDataURL(file);
+    const imageFilesToProcess = allFiles.slice(0, 10);
+    promptText += `\n(총 ${imageFilesToProcess.length}장의 이미지 파일 첨부됨)\n`;
     contentPayload.push({ type: 'text', text: promptText });
-    contentPayload.push({
-      type: 'image_url',
-      image_url: { url: imageDataUrl, detail: 'high' }
-    });
+
+    for (const imgFile of imageFilesToProcess) {
+      const imageDataUrl = await readFileAsDataURL(imgFile);
+      contentPayload.push({
+        type: 'image_url',
+        image_url: { url: imageDataUrl, detail: 'high' }
+      });
+    }
   }
 
   const systemPrompt = `You are an educational quiz generation AI for primary and secondary school teachers.

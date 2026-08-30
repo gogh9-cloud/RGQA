@@ -1,13 +1,51 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   X, Sparkles, Upload, FileText, Image as ImageIcon, Key, 
-  Check, Trash2, Plus, ArrowLeft, Loader2, Info, Eye, EyeOff, Globe, Lock
+  Check, Trash2, Plus, ArrowLeft, Loader2, Eye, EyeOff, Globe, Lock, AlertCircle
 } from 'lucide-react';
-import { generateQuizWithAI, getOpenAIApiKey, saveOpenAIApiKey } from '../lib/openai';
+import { generateQuizWithAI, getOpenAIApiKey, saveOpenAIApiKey, getPDFPageCount } from '../lib/openai';
 
-export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) {
+const MAX_DAILY_AI_USAGE = 3;
+
+const getTodayStr = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const getDailyAIUsage = (userId) => {
+  const uid = userId || 'guest';
+  const key = `rgqa_ai_usage_${uid}_${getTodayStr()}`;
+  const val = localStorage.getItem(key);
+  return val ? parseInt(val, 10) : 0;
+};
+
+const incrementDailyAIUsage = (userId) => {
+  const uid = userId || 'guest';
+  const key = `rgqa_ai_usage_${uid}_${getTodayStr()}`;
+  const current = getDailyAIUsage(userId);
+  localStorage.setItem(key, String(current + 1));
+  return current + 1;
+};
+
+export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank, user }) {
+  const userId = user?.id || user?.email || 'guest';
+  
   const [step, setStep] = useState(1); // 1: Settings, 2: Loading, 3: Preview/Edit
-  const [file, setFile] = useState(null);
+  
+  // File state
+  const [files, setFiles] = useState([]); // Array of File objects
+  const [fileType, setFileType] = useState(null); // 'pdf' | 'image' | null
+  const [imagePreviews, setImagePreviews] = useState([]); // Array of Data URLs for image thumbnails
+  
+  // PDF Page Selection State
+  const [pdfTotalPages, setPdfTotalPages] = useState(0);
+  const [pdfStartPage, setPdfStartPage] = useState(1);
+  const [pdfEndPage, setPdfEndPage] = useState(1);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+
+  // Daily Usage State
+  const [dailyUsed, setDailyUsed] = useState(0);
+
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [subject, setSubject] = useState('');
@@ -28,22 +66,91 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
   const [saving, setSaving] = useState(false);
 
   const fileInputRef = useRef(null);
+  const appendFileInputRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
       setApiKey(getOpenAIApiKey());
       setErrorMsg('');
+      const used = getDailyAIUsage(userId);
+      setDailyUsed(used);
     }
-  }, [isOpen]);
+  }, [isOpen, userId]);
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files[0];
-    if (selected) {
-      setFile(selected);
-      setErrorMsg('');
+  const handleFilesAdded = async (newFileList) => {
+    if (!newFileList || newFileList.length === 0) return;
+    setErrorMsg('');
+
+    const newFilesArray = Array.from(newFileList);
+    const firstNewFile = newFilesArray[0];
+    const isPDF = firstNewFile.type === 'application/pdf' || firstNewFile.name.toLowerCase().endsWith('.pdf');
+
+    if (isPDF) {
+      // PDF File Upload Logic
+      const pdfFile = firstNewFile;
+      setFileType('pdf');
+      setFiles([pdfFile]);
+      setImagePreviews([]);
+      setLoadingPdf(true);
+      try {
+        const totalPages = await getPDFPageCount(pdfFile);
+        setPdfTotalPages(totalPages);
+        setPdfStartPage(1);
+        setPdfEndPage(Math.min(totalPages, 10));
+      } catch (err) {
+        console.error('PDF Page count failed:', err);
+        setErrorMsg('PDF 파일 정보를 읽어오는데 실패했습니다.');
+      } finally {
+        setLoadingPdf(false);
+      }
+    } else {
+      // Image Files Upload Logic
+      const imageFiles = newFilesArray.filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(f.name));
+      if (imageFiles.length === 0) {
+        setErrorMsg('지원되는 PDF 또는 이미지 파일(.png, .jpg, .webp 등)을 선택해 주세요.');
+        return;
+      }
+
+      let combined = fileType === 'image' ? [...files, ...imageFiles] : imageFiles;
+      if (combined.length > 10) {
+        setErrorMsg('그림 파일은 최대 10장까지만 올릴 수 있습니다. (상위 10개 이미지 선택됨)');
+        combined = combined.slice(0, 10);
+      }
+      setFileType('image');
+      setFiles(combined);
+
+      // Generate preview data URLs
+      const previews = await Promise.all(combined.map(f => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(f);
+        });
+      }));
+      setImagePreviews(previews);
     }
+  };
+
+  const handleRemoveImage = (index) => {
+    const updatedFiles = files.filter((_, idx) => idx !== index);
+    const updatedPreviews = imagePreviews.filter((_, idx) => idx !== index);
+    setFiles(updatedFiles);
+    setImagePreviews(updatedPreviews);
+    if (updatedFiles.length === 0) {
+      setFileType(null);
+    }
+  };
+
+  const handleClearFiles = () => {
+    setFiles([]);
+    setFileType(null);
+    setImagePreviews([]);
+    setPdfTotalPages(0);
+    setPdfStartPage(1);
+    setPdfEndPage(1);
   };
 
   const handleDragOver = (e) => {
@@ -52,19 +159,50 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
 
   const handleDrop = (e) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
-      setErrorMsg('');
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesAdded(e.dataTransfer.files);
     }
   };
 
   const handleGenerate = async () => {
-    if (!file) {
+    // 1. Check daily AI usage limit
+    const currentUsage = getDailyAIUsage(userId);
+    if (currentUsage >= MAX_DAILY_AI_USAGE) {
+      setErrorMsg(`오늘 AI 사용 횟수(${MAX_DAILY_AI_USAGE}회)를 모두 소진하셨습니다. 내일 다시 시도해 주세요.`);
+      return;
+    }
+
+    // 2. Check file upload presence
+    if (!files || files.length === 0) {
       setErrorMsg('PDF 또는 이미지 파일을 업로드해 주세요.');
       return;
     }
+
     if (!apiKey.trim()) {
       setErrorMsg('OpenAI API Key를 입력해 주세요.');
+      return;
+    }
+
+    // 3. Check PDF page range selection (max 10 pages)
+    let selectedPagesArray = null;
+    if (fileType === 'pdf') {
+      if (pdfStartPage < 1 || pdfEndPage < pdfStartPage || pdfStartPage > pdfTotalPages || pdfEndPage > pdfTotalPages) {
+        setErrorMsg('올바른 PDF 페이지 범위를 입력해 주세요.');
+        return;
+      }
+      const pageCount = pdfEndPage - pdfStartPage + 1;
+      if (pageCount > 10) {
+        setErrorMsg('PDF 파일은 한번에 최대 10페이지까지만 선택할 수 있습니다.');
+        return;
+      }
+      selectedPagesArray = [];
+      for (let i = pdfStartPage; i <= pdfEndPage; i++) {
+        selectedPagesArray.push(i);
+      }
+    }
+
+    if (fileType === 'image' && files.length > 10) {
+      setErrorMsg('그림 파일은 최대 10장까지만 올릴 수 있습니다.');
       return;
     }
 
@@ -78,7 +216,9 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
     try {
       const result = await generateQuizWithAI({
         apiKey,
-        file,
+        file: files[0],
+        files,
+        selectedPages: selectedPagesArray,
         subject,
         questionCount,
         difficulty,
@@ -86,7 +226,12 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
         model
       });
 
-      setBankTitle(result.title || `${file.name.replace(/\.[^/.]+$/, '')} (AI 생성)`);
+      // Increment usage count upon successful generation
+      const newUsed = incrementDailyAIUsage(userId);
+      setDailyUsed(newUsed);
+
+      const mainFileName = files[0].name.replace(/\.[^/.]+$/, '');
+      setBankTitle(result.title || `${mainFileName} (AI 생성)`);
       setBankSubject(result.subject || subject || '기타');
       
       const formattedQ = (result.questions || []).map((q, idx) => ({
@@ -191,6 +336,9 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
     }
   };
 
+  const remainingUsage = Math.max(0, MAX_DAILY_AI_USAGE - dailyUsed);
+  const isLimitReached = dailyUsed >= MAX_DAILY_AI_USAGE;
+
   return (
     <div style={{
       position: 'fixed',
@@ -222,7 +370,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
           padding: '20px 24px',
           borderBottom: '1px solid rgba(255,255,255,0.1)',
           display: 'flex',
-          justify: 'space-between',
+          justifyContent: 'space-between',
           alignItems: 'center',
           background: 'var(--surface-2)'
         }}>
@@ -270,64 +418,362 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
               borderRadius: '8px',
               color: '#f87171',
               fontSize: '13px',
-              marginBottom: '20px'
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}>
-              {errorMsg}
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <div>{errorMsg}</div>
             </div>
           )}
 
           {/* STEP 1: Settings & File Selection */}
           {step === 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Daily Limit Banner */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: isLimitReached ? 'rgba(239, 68, 68, 0.12)' : 'rgba(139, 92, 246, 0.12)',
+                border: isLimitReached ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(139, 92, 246, 0.3)',
+                padding: '10px 16px',
+                borderRadius: '10px',
+                fontSize: '13px'
+              }}>
+                <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink)' }}>
+                  ⚡ 일일 AI 문제 생성 한도 (계정당 하루 3회)
+                </span>
+                <span style={{ fontWeight: 'bold' }}>
+                  {!isLimitReached ? (
+                    <span style={{ color: 'var(--primary)' }}>오늘 남은 횟수: {remainingUsage} / {MAX_DAILY_AI_USAGE}회</span>
+                  ) : (
+                    <span style={{ color: '#f87171' }}>오늘 사용 횟수 소진 ({dailyUsed}/{MAX_DAILY_AI_USAGE}회)</span>
+                  )}
+                </span>
+              </div>
+
               {/* File Upload Area */}
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>
-                  📄 문서 또는 이미지 파일 <span style={{ color: 'var(--primary)' }}>*</span>
-                </label>
-                <div 
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current.click()}
-                  style={{
-                    border: '2px dashed var(--ink-muted)',
-                    borderRadius: '12px',
-                    padding: '30px 20px',
-                    textAlign: 'center',
-                    background: file ? 'rgba(34, 197, 94, 0.05)' : 'var(--surface-2)',
-                    borderColor: file ? 'var(--primary)' : 'var(--ink-muted)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <input 
-                    ref={fileInputRef} 
-                    type="file" 
-                    accept=".pdf,image/*" 
-                    onChange={handleFileChange} 
-                    style={{ display: 'none' }} 
-                  />
-
-                  {file ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-                      {file.type === 'application/pdf' ? <FileText size={32} color="#60A5FA" /> : <ImageIcon size={32} color="#34D399" />}
-                      <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--ink)' }}>{file.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>{(file.size / 1024 / 1024).toFixed(2)} MB</div>
-                      </div>
-                      <span style={{ marginLeft: '12px', fontSize: '12px', color: 'var(--primary)', fontWeight: 'bold' }}>변경하기</span>
-                    </div>
-                  ) : (
-                    <div>
-                      <Upload size={32} color="var(--ink-muted)" style={{ marginBottom: '8px' }} />
-                      <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>
-                        클릭하거나 PDF / 이미지 파일을 이곳에 드래그하세요
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
-                        지원 형식: PDF (.pdf), 이미지 (.png, .jpg, .jpeg, .webp)
-                      </div>
-                    </div>
-                  )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                    📄 문서 또는 이미지 파일 <span style={{ color: 'var(--primary)' }}>*</span>
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--ink-muted)' }}>
+                    그림 파일 최대 10장 / PDF 선택 시 최대 10페이지 지원
+                  </span>
                 </div>
+
+                {/* Drop Zone when no files uploaded */}
+                {files.length === 0 ? (
+                  <div 
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current.click()}
+                    style={{
+                      border: '2px dashed var(--ink-muted)',
+                      borderRadius: '12px',
+                      padding: '30px 20px',
+                      textAlign: 'center',
+                      background: 'var(--surface-2)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <input 
+                      ref={fileInputRef} 
+                      type="file" 
+                      accept=".pdf,image/*" 
+                      multiple
+                      onChange={(e) => handleFilesAdded(e.target.files)} 
+                      style={{ display: 'none' }} 
+                    />
+                    <Upload size={32} color="var(--ink-muted)" style={{ marginBottom: '8px' }} />
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>
+                      클릭하거나 PDF / 이미지 파일들을 이곳에 드래그하세요
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
+                      - 그림 파일: 최대 10장까지 동시 선택 및 업로드 가능<br />
+                      - PDF 파일: 10페이지 이상 시 원하는 10페이지 선택 기능 제공
+                    </div>
+                  </div>
+                ) : (
+                  /* Display File Control UI based on fileType */
+                  <div style={{
+                    background: 'var(--surface-2)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '14px'
+                  }}>
+                    {/* Hidden input for adding more image files */}
+                    <input 
+                      ref={appendFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => handleFilesAdded(e.target.files)}
+                      style={{ display: 'none' }}
+                    />
+
+                    {/* PDF UI */}
+                    {fileType === 'pdf' && (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <FileText size={32} color="#60A5FA" />
+                            <div>
+                              <div style={{ fontWeight: 'bold', fontSize: '14px', color: 'var(--ink)' }}>{files[0].name}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
+                                {(files[0].size / 1024 / 1024).toFixed(2)} MB {loadingPdf ? '(페이지 수 확인 중...)' : `(총 ${pdfTotalPages}페이지)`}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleClearFiles}
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              color: 'var(--ink-muted)',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              fontSize: '12px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            다른 파일 선택
+                          </button>
+                        </div>
+
+                        {/* PDF Page Selection Section */}
+                        {pdfTotalPages > 0 && (
+                          <div style={{
+                            background: 'var(--surface-1)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '8px',
+                            padding: '12px 14px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <label style={{ fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                📖 PDF 추출 페이지 선택 <span style={{ color: 'var(--primary)', fontSize: '11px' }}>(최대 10페이지까지 가능)</span>
+                              </label>
+                              <span style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 'bold' }}>
+                                선택됨: {pdfEndPage - pdfStartPage + 1}페이지 (Pages {pdfStartPage} ~ {pdfEndPage})
+                              </span>
+                            </div>
+
+                            {pdfTotalPages > 10 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>시작:</span>
+                                  <input 
+                                    type="number" 
+                                    min={1} 
+                                    max={pdfTotalPages}
+                                    value={pdfStartPage}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value, 10) || 1;
+                                      setPdfStartPage(val);
+                                      if (pdfEndPage < val) setPdfEndPage(val);
+                                    }}
+                                    style={{
+                                      width: '70px',
+                                      padding: '6px 8px',
+                                      background: 'var(--surface-2)',
+                                      border: '1px solid rgba(255,255,255,0.15)',
+                                      borderRadius: '6px',
+                                      color: 'var(--ink)',
+                                      fontSize: '13px',
+                                      textAlign: 'center'
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>~ 끝:</span>
+                                  <input 
+                                    type="number" 
+                                    min={pdfStartPage} 
+                                    max={pdfTotalPages}
+                                    value={pdfEndPage}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value, 10) || pdfStartPage;
+                                      setPdfEndPage(val);
+                                    }}
+                                    style={{
+                                      width: '70px',
+                                      padding: '6px 8px',
+                                      background: 'var(--surface-2)',
+                                      border: '1px solid rgba(255,255,255,0.15)',
+                                      borderRadius: '6px',
+                                      color: 'var(--ink)',
+                                      fontSize: '13px',
+                                      textAlign: 'center'
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>/ 총 {pdfTotalPages}p</span>
+                                </div>
+
+                                {/* Range presets if document is large */}
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {[
+                                    { label: '1~10p', start: 1, end: Math.min(10, pdfTotalPages) },
+                                    pdfTotalPages >= 20 && { label: '11~20p', start: 11, end: Math.min(20, pdfTotalPages) },
+                                    pdfTotalPages >= 30 && { label: '21~30p', start: 21, end: Math.min(30, pdfTotalPages) },
+                                    pdfTotalPages > 10 && { label: `마지막 10p (${Math.max(1, pdfTotalPages - 9)}~${pdfTotalPages}p)`, start: Math.max(1, pdfTotalPages - 9), end: pdfTotalPages }
+                                  ].filter(Boolean).map((preset, idx) => (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => {
+                                        setPdfStartPage(preset.start);
+                                        setPdfEndPage(preset.end);
+                                      }}
+                                      style={{
+                                        padding: '4px 8px',
+                                        fontSize: '11px',
+                                        borderRadius: '4px',
+                                        background: 'var(--surface-2)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        color: 'var(--ink-muted)',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      {preset.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
+                                PDF의 전체 {pdfTotalPages}페이지가 모두 생성에 포함됩니다.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* IMAGES UI */}
+                    {fileType === 'image' && (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <ImageIcon size={18} color="#34D399" /> 
+                            업로드된 이미지 목록 <span style={{ color: 'var(--primary)' }}>({files.length} / 10장)</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            {files.length < 10 && (
+                              <button
+                                type="button"
+                                onClick={() => appendFileInputRef.current.click()}
+                                style={{
+                                  padding: '5px 10px',
+                                  background: 'rgba(34, 197, 94, 0.15)',
+                                  border: '1px solid var(--primary)',
+                                  borderRadius: '6px',
+                                  color: 'var(--primary)',
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Plus size={14} /> 이미지 추가 ({files.length}/10)
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleClearFiles}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                color: 'var(--ink-muted)',
+                                borderRadius: '6px',
+                                padding: '5px 10px',
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              전체 삭제
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Image Thumbnails Grid */}
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                          gap: '10px',
+                          maxHeight: '200px',
+                          overflowY: 'auto'
+                        }}>
+                          {files.map((fileObj, idx) => (
+                            <div key={idx} style={{
+                              position: 'relative',
+                              background: 'var(--surface-1)',
+                              borderRadius: '8px',
+                              overflow: 'hidden',
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center'
+                            }}>
+                              {imagePreviews[idx] ? (
+                                <img 
+                                  src={imagePreviews[idx]} 
+                                  alt={`preview-${idx}`} 
+                                  style={{ width: '100%', height: '70px', objectFit: 'cover' }} 
+                                />
+                              ) : (
+                                <div style={{ width: '100%', height: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#333' }}>
+                                  <ImageIcon size={24} color="#888" />
+                                </div>
+                              )}
+                              <div style={{
+                                width: '100%',
+                                padding: '4px 6px',
+                                fontSize: '10px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                textAlign: 'center',
+                                color: 'var(--ink-muted)'
+                              }}>
+                                {idx + 1}. {fileObj.name}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveImage(idx)}
+                                style={{
+                                  position: 'absolute',
+                                  top: '4px',
+                                  right: '4px',
+                                  background: 'rgba(0,0,0,0.7)',
+                                  border: 'none',
+                                  borderRadius: '50%',
+                                  color: '#ef4444',
+                                  width: '20px',
+                                  height: '20px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer'
+                                }}
+                                title="이미지 삭제"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Options Grid */}
@@ -520,7 +966,7 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
                 AI가 문서를 분석하고 문제를 생성하고 있습니다...
               </h4>
               <p style={{ color: 'var(--ink-muted)', fontSize: '14px' }}>
-                문서 크기와 요청 문항 수에 따라 약 10~30초 정도 소요될 수 있습니다.
+                선택하신 문서/이미지 크기와 요청 문항 수에 따라 약 10~30초 정도 소요될 수 있습니다.
               </p>
             </div>
           )}
@@ -764,22 +1210,23 @@ export default function AIQuizGeneratorModal({ isOpen, onClose, onSaveToBank }) 
               <button
                 type="button"
                 onClick={handleGenerate}
+                disabled={isLimitReached}
                 style={{
                   padding: '10px 24px',
-                  background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+                  background: isLimitReached ? '#4b5563' : 'linear-gradient(135deg, #8B5CF6, #EC4899)',
                   border: 'none',
                   borderRadius: '8px',
                   color: '#fff',
-                  cursor: 'pointer',
+                  cursor: isLimitReached ? 'not-allowed' : 'pointer',
                   fontSize: '14px',
                   fontWeight: 'bold',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  boxShadow: '0 4px 12px rgba(139, 92, 246, 0.4)'
+                  boxShadow: isLimitReached ? 'none' : '0 4px 12px rgba(139, 92, 246, 0.4)'
                 }}
               >
-                <Sparkles size={16} /> AI 문제 생성하기
+                <Sparkles size={16} /> {isLimitReached ? '오늘 사용 횟수 초과' : 'AI 문제 생성하기'}
               </button>
             </>
           )}

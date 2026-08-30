@@ -1014,6 +1014,7 @@ const QuizList = ({ user }) => {
         isOpen={showAIModal}
         onClose={() => setShowAIModal(false)}
         onSaveToBank={handleSaveAIGeneratedBank}
+        user={user}
       />
     </div>
   );
