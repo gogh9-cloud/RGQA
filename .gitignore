@@ -26,3 +26,5 @@ dist-ssr
 # Firebase 이전용 비밀 키
 serviceAccount.json
 *-firebase-adminsdk-*.json
+.firebase/
+serviceAccount*.json

@@ -1,1 +1,0 @@
-const fs = require('fs'); let c = fs.readFileSync('public/pacman.html', 'utf-8'); c = c.replace(/initStage\(0, true\);/g, 'initStage(Math.floor(Math.random() * MAPS.length), true);'); fs.writeFileSync('public/pacman.html', c);

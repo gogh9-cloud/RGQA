@@ -1,1 +1,0 @@
-const fs = require('fs'); let c = fs.readFileSync('public/pacman.html', 'utf-8'); c = c.replace('invincibilityEndTime = ts + 1500;', 'invincibilityEndTime = ts + 1500; document.getElementById(\'hv-score\').textContent = player.score;'); fs.writeFileSync('public/pacman.html', c);
