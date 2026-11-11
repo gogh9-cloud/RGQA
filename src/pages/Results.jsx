@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
 import { ArrowLeft, Download, Edit2, Trash2, Check, X } from 'lucide-react';
 
 const Results = () => {
@@ -16,16 +16,16 @@ const Results = () => {
 
   const fetchResults = useCallback(async () => {
     const [setRes, stuRes] = await Promise.all([
-      supabase.from('quiz_sets').select('*').eq('id', quizSetId).single(),
-      supabase.from('students').select('*, student_logs(*)').eq('quiz_set_id', quizSetId).order('ban', { ascending: true }).order('num', { ascending: true })
+      db.from('quiz_sets').select('*').eq('id', quizSetId).single(),
+      db.from('students').select('*, student_logs(*)').eq('quiz_set_id', quizSetId).order('ban', { ascending: true }).order('num', { ascending: true })
     ]);
     if (setRes.data) {
       setQuizSet(setRes.data);
       if (setRes.data.bank_id) {
-        const { data: qData } = await supabase.from('bank_questions').select('*').eq('bank_id', setRes.data.bank_id);
+        const { data: qData } = await db.from('bank_questions').select('*').eq('bank_id', setRes.data.bank_id);
         setQuestions(qData || []);
       } else {
-        const { data: qData } = await supabase.from('questions').select('*').eq('quiz_set_id', setRes.data.id);
+        const { data: qData } = await db.from('questions').select('*').eq('quiz_set_id', setRes.data.id);
         setQuestions(qData || []);
       }
     }
@@ -60,7 +60,7 @@ const Results = () => {
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`${name} 학생의 기록을 정말 삭제하시겠습니까?`)) {
-      const { error } = await supabase.from('students').delete().eq('id', id);
+      const { error } = await db.from('students').delete().eq('id', id);
       if (!error) {
         setStudents(prev => prev.filter(s => s.id !== id));
       } else {
@@ -79,7 +79,7 @@ const Results = () => {
   };
 
   const handleSaveEdit = async (id) => {
-    const { error } = await supabase.from('students').update({
+    const { error } = await db.from('students').update({
       ban: parseInt(editForm.ban) || 0,
       num: parseInt(editForm.num) || 0,
       name: editForm.name,

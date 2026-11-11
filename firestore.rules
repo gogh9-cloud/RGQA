@@ -1,0 +1,71 @@
+rules_version = '2';
+// RGQA Firestore 보안 규칙 (기존 Supabase RLS v1~v7 을 옮긴 것)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email in ['gogh9@susaek.sen.es.kr'];
+    }
+    function myEmail() {
+      return signedIn() && request.auth.token.email_verified == true ? request.auth.token.email.lower() : '';
+    }
+    // 옮겨온 데이터: 같은 이메일의 교사가 소유자 ID 만 자기 ID 로 바꾸는 것 허용
+    function claiming(emailField, idField) {
+      return myEmail() != '' && resource.data[emailField] == myEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([idField])
+        && request.resource.data[idField] == uid();
+    }
+    function ownsQuizSet(quizSetId) {
+      return signedIn() && get(/databases/$(database)/documents/quiz_sets/$(quizSetId)).data.teacher_id == uid();
+    }
+    function ownsBank(bankId) {
+      return isAdmin() || (signedIn() && get(/databases/$(database)/documents/question_banks/$(bankId)).data.uploaded_by == uid());
+    }
+
+    // 게임방: 누구나 읽기(학생 접속용), 교사 본인만 생성/수정/삭제
+    match /quiz_sets/{id} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.teacher_id == uid();
+      allow update, delete: if signedIn() && resource.data.teacher_id == uid();
+      allow update: if claiming('teacher_email', 'teacher_id');
+    }
+
+    // 게임방 직접 입력 문항(레거시)
+    match /questions/{id} {
+      allow read: if true;
+      allow create: if ownsQuizSet(request.resource.data.quiz_set_id);
+      allow update, delete: if ownsQuizSet(resource.data.quiz_set_id);
+    }
+
+    // 문제은행: 공개이거나 본인/관리자만 읽기
+    match /question_banks/{id} {
+      allow read: if resource.data.is_public == true || isAdmin()
+                  || (signedIn() && resource.data.uploaded_by == uid())
+                  || (myEmail() != '' && resource.data.uploader_email == myEmail());
+      allow create: if signedIn() && request.resource.data.uploaded_by == uid();
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.uploaded_by == uid());
+      allow update: if claiming('uploader_email', 'uploaded_by');
+    }
+
+    // 문제은행 문항: 누구나 읽기(게임 중 로딩), 은행 주인/관리자만 쓰기
+    match /bank_questions/{id} {
+      allow read: if true;
+      allow create: if ownsBank(request.resource.data.bank_id);
+      allow update, delete: if ownsBank(resource.data.bank_id);
+    }
+
+    // 학생: 로그인 없이 게임에 참여하므로 읽기/생성/수정은 공개, 삭제는 게임방 주인
+    match /students/{id} {
+      allow read, create, update: if true;
+      allow delete: if ownsQuizSet(resource.data.quiz_set_id);
+    }
+
+    // 풀이 기록: 학생이 생성, 삭제는 로그인한 교사(학생/게임방 삭제 시 함께 삭제)
+    match /student_logs/{id} {
+      allow read, create: if true;
+      allow delete: if signedIn();
+    }
+  }
+}

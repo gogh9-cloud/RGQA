@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db, signOut, fetchVisibleBanks } from '../lib/firebase';
 import { BUB_IMG_SRC } from '../lib/assets';
 import * as XLSX from 'xlsx';
 import { LogOut, Copy, Trash2, BarChart2, Plus, BookOpen, Lock, Globe, Upload, Download, Edit, ChevronDown, ChevronRight, ExternalLink, Sparkles } from 'lucide-react';
@@ -63,7 +63,7 @@ const QuizList = ({ user }) => {
   const isAdmin = ADMIN_EMAILS.includes(user?.email);
 
   const fetchQuizSets = useCallback(async () => {
-    const { data } = await supabase
+    const { data } = await db
       .from('quiz_sets')
       .select('*, question_banks(title, subject)')
       .eq('teacher_id', user.id)
@@ -72,12 +72,9 @@ const QuizList = ({ user }) => {
   }, [user.id]);
 
   const fetchBanks = useCallback(async () => {
-    const { data } = await supabase
-      .from('question_banks')
-      .select('id, title, subject, question_count, is_public, uploader_email, uploaded_by')
-      .order('created_at', { ascending: false });
+    const { data } = await fetchVisibleBanks(user);
     setBanks(data || []);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     Promise.all([fetchQuizSets(), fetchBanks()]).finally(() => setLoading(false));
@@ -90,11 +87,12 @@ const QuizList = ({ user }) => {
     }
     setCreating(true);
     const linkCode = Math.random().toString(36).substring(2, 10);
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('quiz_sets')
       .insert([{
         title: newRoomTitle.trim(),
         teacher_id: user.id,
+        teacher_email: String(user.email || '').toLowerCase(),
         link_code: linkCode,
         bank_id: selectedBankId,
         game_type: newRoomGameType
@@ -117,12 +115,12 @@ const QuizList = ({ user }) => {
 
   const deleteQuizSet = async (id) => {
     if (!window.confirm('게임방을 삭제하시겠습니까? 학생 기록도 함께 삭제됩니다.')) return;
-    const { error } = await supabase.from('quiz_sets').delete().eq('id', id);
+    const { error } = await db.from('quiz_sets').delete().eq('id', id);
     if (!error) setQuizSets(prev => prev.filter(q => q.id !== id));
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     navigate('/');
   };
 
@@ -179,14 +177,14 @@ const QuizList = ({ user }) => {
     setUploading(true);
     setShowUploadModal(false);
     try {
-      const { data: bank, error: bankErr } = await supabase
+      const { data: bank, error: bankErr } = await db
         .from('question_banks')
         .insert([{
           title: uploadData.title,
           subject: uploadData.subject,
           is_public: uploadData.isPublic,
           uploaded_by: user.id,
-          uploader_email: user.email,
+          uploader_email: String(user.email || '').toLowerCase(),
           question_count: uploadData.validRows.length
         }])
         .select()
@@ -203,7 +201,7 @@ const QuizList = ({ user }) => {
         image_url: convertDriveUrl(r[3])
       }));
 
-      const { error: qErr } = await supabase.from('bank_questions').insert(questions);
+      const { error: qErr } = await db.from('bank_questions').insert(questions);
       if (qErr) throw qErr;
 
       alert(`✅ "${uploadData.title}" 업로드 완료!\n총 ${uploadData.validRows.length}개 문제가 저장되었습니다.`);
@@ -217,14 +215,14 @@ const QuizList = ({ user }) => {
   };
 
   const handleSaveAIGeneratedBank = async ({ title, subject, isPublic, questions }) => {
-    const { data: bank, error: bankErr } = await supabase
+    const { data: bank, error: bankErr } = await db
       .from('question_banks')
       .insert([{
         title,
         subject: subject || '',
         is_public: isPublic,
         uploaded_by: user.id,
-        uploader_email: user.email,
+        uploader_email: String(user.email || '').toLowerCase(),
         question_count: questions.length
       }])
       .select()
@@ -241,7 +239,7 @@ const QuizList = ({ user }) => {
       image_url: ''
     }));
 
-    const { error: qErr } = await supabase.from('bank_questions').insert(dbQuestions);
+    const { error: qErr } = await db.from('bank_questions').insert(dbQuestions);
     if (qErr) throw qErr;
 
     alert(`✅ "${title}" 문제 은행 생성이 완료되었습니다!\n총 ${questions.length}문항이 등록되었습니다.`);
@@ -261,7 +259,7 @@ const QuizList = ({ user }) => {
 
   const deleteBank = async (id) => {
     if (!window.confirm('문제 은행을 삭제하시겠습니까?\n연결된 게임방이 있다면 해당 게임방에서는 문제가 보이지 않을 수 있습니다.')) return;
-    const { data, error } = await supabase.from('question_banks').delete().eq('id', id).select();
+    const { data, error } = await db.from('question_banks').delete().eq('id', id).select();
     if (error || !data || data.length === 0) {
       alert(`삭제 실패: 권한이 없거나 삭제할 수 없는 상태입니다.\n(사유: ${error?.message || '알 수 없는 오류'})`);
     } else {
@@ -277,7 +275,7 @@ const QuizList = ({ user }) => {
     }
     setUploading(true);
     try {
-      const { error } = await supabase
+      const { error } = await db
         .from('question_banks')
         .update({ title: editBankData.title, is_public: editBankData.isPublic })
         .eq('id', editBankData.id);
@@ -296,11 +294,11 @@ const QuizList = ({ user }) => {
 
   const fetchBankQuestions = async (bankId) => {
     if (bankQuestions[bankId]) return;
-    const { data } = await supabase
+    const { data } = await db
       .from('bank_questions')
       .select('*')
       .eq('bank_id', bankId)
-      .order('id', { ascending: true });
+      .order('created_at', { ascending: true });
     setBankQuestions(prev => ({ ...prev, [bankId]: data || [] }));
   };
 
@@ -316,7 +314,7 @@ const QuizList = ({ user }) => {
   const copyBank = async (bank) => {
     if (!window.confirm(`"${bank.title}" 문제 은행을 내 문제로 가져오시겠습니까?`)) return;
     
-    const { data: originalQuestions, error: fetchErr } = await supabase
+    const { data: originalQuestions, error: fetchErr } = await db
       .from('bank_questions')
       .select('*')
       .eq('bank_id', bank.id);
@@ -326,14 +324,14 @@ const QuizList = ({ user }) => {
       return;
     }
 
-    const { data: newBank, error: bankErr } = await supabase
+    const { data: newBank, error: bankErr } = await db
       .from('question_banks')
       .insert([{
         title: `${bank.title} (복사본)`,
         subject: bank.subject,
         is_public: false,
         uploaded_by: user.id,
-        uploader_email: user.email,
+        uploader_email: String(user.email || '').toLowerCase(),
         question_count: bank.question_count
       }])
       .select()
@@ -354,7 +352,7 @@ const QuizList = ({ user }) => {
         image_url: q.image_url
       }));
       
-      const { error: qErr } = await supabase.from('bank_questions').insert(newQuestions);
+      const { error: qErr } = await db.from('bank_questions').insert(newQuestions);
       if (qErr) {
         alert('문항 복사에 실패했습니다.');
         return;
@@ -380,7 +378,7 @@ const QuizList = ({ user }) => {
     const opts = editQForm.options.split(',').map(s => s.trim()).filter(Boolean);
     const ans = editQForm.answers.split(',').map(s => s.trim()).filter(Boolean);
     
-    const { error } = await supabase.from('bank_questions').update({
+    const { error } = await db.from('bank_questions').update({
       question_text: editQForm.question_text,
       options: opts,
       answers: ans,
@@ -401,7 +399,7 @@ const QuizList = ({ user }) => {
 
   const deleteQuestion = async (qId, bankId) => {
     if (!window.confirm('이 문제를 삭제하시겠습니까?')) return;
-    const { data, error } = await supabase.from('bank_questions').delete().eq('id', qId).select();
+    const { data, error } = await db.from('bank_questions').delete().eq('id', qId).select();
     if (error || !data || data.length === 0) {
       alert('문제 삭제 실패: 권한이 없거나 서버 오류입니다.');
       return;
@@ -413,7 +411,7 @@ const QuizList = ({ user }) => {
     const bank = banks.find(b => b.id === bankId);
     if (bank) {
       const newCount = Math.max(0, bank.question_count - 1);
-      await supabase.from('question_banks').update({ question_count: newCount }).eq('id', bankId);
+      await db.from('question_banks').update({ question_count: newCount }).eq('id', bankId);
       setBanks(prev => prev.map(b => b.id === bankId ? { ...b, question_count: newCount } : b));
     }
   };
@@ -427,7 +425,7 @@ const QuizList = ({ user }) => {
       answers: ['정답'],
       image_url: ''
     };
-    const { data, error } = await supabase.from('bank_questions').insert([newQuestion]).select().single();
+    const { data, error } = await db.from('bank_questions').insert([newQuestion]).select().single();
     if (error) {
       alert('문제 추가 실패: ' + error.message);
       return;
@@ -439,7 +437,7 @@ const QuizList = ({ user }) => {
     const bank = banks.find(b => b.id === bankId);
     if (bank) {
       const newCount = bank.question_count + 1;
-      await supabase.from('question_banks').update({ question_count: newCount }).eq('id', bankId);
+      await db.from('question_banks').update({ question_count: newCount }).eq('id', bankId);
       setBanks(prev => prev.map(b => b.id === bankId ? { ...b, question_count: newCount } : b));
     }
     setEditingQuestion(data.id);

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
 import { initGameEngine } from '../lib/gameEngine';
 import { BUB_IMG_SRC } from '../lib/assets';
 import PacmanWrapper from './PacmanWrapper';
@@ -24,7 +24,7 @@ const Game = () => {
 
   const fetchQuizSet = useCallback(async () => {
     setLoading(true);
-    const { data: qSet, error } = await supabase
+    const { data: qSet, error } = await db
       .from('quiz_sets')
       .select('*, question_banks(id, title)')
       .eq('link_code', room)
@@ -39,7 +39,7 @@ const Game = () => {
 
     // v2: bank_id가 있으면 bank_questions에서 로드, 없으면 레거시 questions 테이블 사용
     if (qSet.bank_id) {
-      const { data: qData } = await supabase
+      const { data: qData } = await db
         .from('bank_questions')
         .select('*')
         .eq('bank_id', qSet.bank_id)
@@ -47,7 +47,7 @@ const Game = () => {
       setQuestions(qData || []);
     } else {
       // 레거시 폴백: 수동으로 추가한 questions 테이블
-      const { data: qData } = await supabase
+      const { data: qData } = await db
         .from('questions')
         .select('*')
         .eq('quiz_set_id', qSet.id)
@@ -76,7 +76,7 @@ const Game = () => {
 
     setLoading(true);
     // 학생 정보 조회
-    let { data: student, error: fetchError } = await supabase
+    let { data: student, error: fetchError } = await db
       .from('students')
       .select('*')
       .eq('quiz_set_id', quizSet.id)
@@ -94,7 +94,7 @@ const Game = () => {
 
     if (!student) {
       // 학생 정보가 없으면 새로 생성
-      const { data: newStudent, error: insertError } = await supabase
+      const { data: newStudent, error: insertError } = await db
         .from('students')
         .insert([{ quiz_set_id: quizSet.id, ban: parseInt(ban), num: parseInt(num), name }])
         .select()
@@ -145,7 +145,7 @@ const Game = () => {
           const newStageScores = { ...player.stageScores, [stageName]: Math.max(stageScore, player.stageScores[stageName] || 0) };
           const newTotal = Object.values(newStageScores).reduce((a, b) => a + b, 0);
 
-          await supabase.from('students').update({
+          await db.from('students').update({
             total_score: newTotal,
             stage_scores: newStageScores
           }).eq('id', player.id);
@@ -156,7 +156,7 @@ const Game = () => {
           const qObj = questions.find(q => q.id === id);
           if (qObj) {
             if (!isCorrect) {
-              const { data: existing } = await supabase.from('student_logs')
+              const { data: existing } = await db.from('student_logs')
                 .select('id')
                 .eq('student_id', player.id)
                 .eq('question_id', qObj.id)
@@ -164,7 +164,7 @@ const Game = () => {
                 .limit(1);
               if (existing && existing.length > 0) return;
             }
-            const { error } = await supabase.from('student_logs').insert([{
+            const { error } = await db.from('student_logs').insert([{
               student_id: player.id,
               question_id: qObj.id,
               is_correct: isCorrect,
@@ -310,7 +310,7 @@ const Game = () => {
             onSaveStageScore: async ({ stageName, stageScore }) => {
               const newStageScores = { ...playerInfo.stageScores, [stageName]: Math.max(stageScore, playerInfo.stageScores[stageName] || 0) };
               const newTotal = Object.values(newStageScores).reduce((a, b) => a + b, 0);
-              await supabase.from('students').update({ total_score: newTotal, stage_scores: newStageScores }).eq('id', playerInfo.id);
+              await db.from('students').update({ total_score: newTotal, stage_scores: newStageScores }).eq('id', playerInfo.id);
               setPlayerInfo(prev => ({ ...prev, score: newTotal, stageScores: newStageScores }));
               return { score: newTotal, stageScores: newStageScores };
             },
@@ -318,7 +318,7 @@ const Game = () => {
               const qObj = questions.find(q => q.id === id);
               if (qObj) {
                 if (!isCorrect) {
-                  const { data: existing } = await supabase.from('student_logs')
+                  const { data: existing } = await db.from('student_logs')
                     .select('id')
                     .eq('student_id', playerInfo.id)
                     .eq('question_id', qObj.id)
@@ -326,7 +326,7 @@ const Game = () => {
                     .limit(1);
                   if (existing && existing.length > 0) return;
                 }
-                await supabase.from('student_logs').insert([{
+                await db.from('student_logs').insert([{
                   student_id: playerInfo.id,
                   question_id: qObj.id,
                   is_correct: isCorrect,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { getCurrentUser } from '../lib/firebase';
 import QuizList from './QuizList';
 import QuizEditor from './QuizEditor';
 import Results from './Results';
@@ -10,7 +10,7 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    getCurrentUser().then((user) => {
       if (user) {
         setUser(user);
       } else {

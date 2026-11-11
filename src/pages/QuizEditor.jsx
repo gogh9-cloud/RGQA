@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
 import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 
 const QuizEditor = () => {
@@ -13,8 +13,8 @@ const QuizEditor = () => {
 
   const fetchQuizData = useCallback(async () => {
     const [setRes, qRes] = await Promise.all([
-      supabase.from('quiz_sets').select('*').eq('id', quizSetId).single(),
-      supabase.from('questions').select('*').eq('quiz_set_id', quizSetId).order('created_at', { ascending: true })
+      db.from('quiz_sets').select('*').eq('id', quizSetId).single(),
+      db.from('questions').select('*').eq('quiz_set_id', quizSetId).order('created_at', { ascending: true })
     ]);
 
     if (setRes.data) setQuizSet(setRes.data);
@@ -50,7 +50,7 @@ const QuizEditor = () => {
 
   const removeQuestion = async (id) => {
     if (!String(id).startsWith('temp_')) {
-      const { data, error } = await supabase.from('questions').delete().eq('id', id).select();
+      const { data, error } = await db.from('questions').delete().eq('id', id).select();
       if (error || !data || data.length === 0) {
         alert('삭제 실패: 권한이 없거나 서버 오류입니다.');
         return;
@@ -78,8 +78,8 @@ const QuizEditor = () => {
     }));
 
     try {
-      if (toInsert.length > 0) await supabase.from('questions').insert(toInsert);
-      if (toUpdate.length > 0) await supabase.from('questions').upsert(toUpdate);
+      if (toInsert.length > 0) await db.from('questions').insert(toInsert);
+      if (toUpdate.length > 0) await db.from('questions').upsert(toUpdate);
       alert('저장되었습니다.');
       fetchQuizData();
     } catch {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { onAuthChange, signInWithGoogle } from '../lib/firebase';
 import { BUB_IMG_SRC } from '../lib/assets';
 
 const privacyText = `RETRO GAME QUIZ ADVENTURE(이하 "본 서비스")는 이용자의 개인정보를 중요시하며, "개인정보 보호법" 등 관련 법령을 준수합니다.
@@ -68,42 +68,27 @@ const Home = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+    const unsubscribe = onAuthChange((user) => {
+      if (user) {
         navigate('/dashboard');
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        navigate('/dashboard');
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, [navigate]);
 
   const handleLogin = async () => {
     console.log('Login button clicked!'); // 디버깅용 로그 추가
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
-      });
-      if (error) {
-        console.error('Error logging in:', error);
-        alert(`로그인 중 오류가 발생했습니다: ${error.message}`);
-        // 권한 관련 에러(401 등) 시 로컬 및 세션 스토리지 모두 초기화
-        localStorage.clear();
-        sessionStorage.clear();
-        await supabase.auth.signOut();
-      }
+      await signInWithGoogle();
+      navigate('/dashboard');
     } catch (err) {
-      console.error('Login exception:', err);
-      alert(`로그인 중 예외가 발생했습니다: ${err.message}`);
+      // 사용자가 팝업을 닫은 경우는 조용히 무시
+      if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+        console.error('Login exception:', err);
+        alert(`로그인 중 오류가 발생했습니다: ${err.message}`);
+      }
     }
     setLoading(false);
   };
