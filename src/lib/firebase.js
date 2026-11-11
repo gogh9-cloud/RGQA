@@ -22,13 +22,19 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
+// 웹 설정값은 공개돼도 되는 값이라 기본값으로 넣어 둡니다(.env 가 비었거나 잘못돼도 동작).
+const env = (k) => {
+  const v = import.meta.env[k];
+  return typeof v === 'string' ? v.trim().replace(/^["']|["']$/g, '') : v;
+};
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'rgqa26',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  // .env 값이 깨져 있어도(공백, 줄 붙음 등) 올바른 키 형식이 아니면 기본값 사용
+  apiKey: /^AIza[\w-]{35}$/.test(env('VITE_FIREBASE_API_KEY') || '') ? env('VITE_FIREBASE_API_KEY') : 'AIzaSyChxsRrnW7qJNxwd7n0KncttGaVfLY_cXs',
+  authDomain: env('VITE_FIREBASE_AUTH_DOMAIN') || 'rgqa26.firebaseapp.com',
+  projectId: env('VITE_FIREBASE_PROJECT_ID') || 'rgqa26',
+  storageBucket: env('VITE_FIREBASE_STORAGE_BUCKET') || 'rgqa26.firebasestorage.app',
+  messagingSenderId: env('VITE_FIREBASE_MESSAGING_SENDER_ID') || '747685920902',
+  appId: env('VITE_FIREBASE_APP_ID') || '1:747685920902:web:d8fc09a888ffcdb9d61107',
 };
 
 export const app = initializeApp(firebaseConfig);
